@@ -4,14 +4,14 @@
 
 ---
 
-## ⚠️ Status
+##  Status
 
 | Component | Status |
 |---|---|
-| Smart Contract (Anchor/Rust) | ✅ Complete |
-| Test Suite (TypeScript) | ✅ Complete |
-| Devnet Deployment | 🔄 In Progress |
-| Frontend (Next.js) | 🔄 In Progress |
+| Smart Contract (Anchor/Rust) |  Complete |
+| Test Suite (TypeScript) |  Complete |
+| Devnet Deployment |  In Progress |
+| Frontend (Next.js) |  In Progress |
 
 > Program ID (Devnet): `coming soon`
 
