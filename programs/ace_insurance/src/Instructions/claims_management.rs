@@ -343,19 +343,25 @@ pub fn activate_fast_track(
 // Account Validation Contexts
 //------------------------------
 #[derive(Accounts)]
+#[instruction(
+    hack_type: HackType,
+    claim_amount: u64,
+    incident_timestamp: i64
+)]
 pub struct SubmitClaim<'info> {
-    #[account(
-        init,
-        payer = claimant,
-        space = 8 + ClaimRequest::INIT_SPACE,
-        seeds = [
-            b"claim",
-            claimant.key().as_ref(),
-            pool.key().as_ref(),
-            &clock.unix_timestamp.to_le_bytes()
-        ],
-        bump
-    )]
+
+#[account(
+init,
+payer = claimant,
+space = 8 + ClaimRequest::INIT_SPACE,
+seeds = [
+    b"claim",
+    claimant.key().as_ref(),
+    pool.key().as_ref(),
+    &incident_timestamp.to_le_bytes(),
+],
+bump
+)]
     pub claim_request: Box<Account<'info, ClaimRequest>>,
 
     #[account(mut)]
