@@ -5,3 +5,6 @@ target
 node_modules
 test-ledger
 .yarn
+frontend/.next/
+frontend/node_modules/
+frontend/package-lock.json
