@@ -1,6 +1,6 @@
 [toolchain]
 package_manager = "yarn"
- anchor_version = "0.31.1"
+anchor_version = "0.31.1"
 
 [features]
 resolution = true
@@ -9,8 +9,11 @@ skip-lint = false
 [programs.localnet]
 ace_insurance = "4LP2JnLzuPhTCLR6MzPEr2Cr2zU3om7Sk33G5QaeKXRU"
 
+[programs.devnet]
+ace_insurance = "4LP2JnLzuPhTCLR6MzPEr2Cr2zU3om7Sk33G5QaeKXRU"
+
 [provider]
-cluster = "localnet"
+cluster = "devnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]

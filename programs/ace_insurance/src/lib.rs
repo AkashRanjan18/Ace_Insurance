@@ -125,12 +125,21 @@ pub mod ace_insurance {
         Instructions::vrf_integration::initialize_vrf_state(ctx)
     }
 
-    /// Request validator selection using VRF for a claim
+    /// Request validator selection using VRF for a claim (Phase 1 of 2)
     pub fn request_validator_selection(
         ctx: Context<RequestValidatorSelection>,
         claim_id: Pubkey,
     ) -> Result<()> {
         Instructions::vrf_integration::request_validator_selection(ctx, claim_id)
+    }
+
+    /// Consume oracle-verified randomness and assign validators (Phase 2 of 2)
+    /// Called by the Switchboard oracle via CPI after the VRF proof is published.
+    pub fn fulfill_vrf_randomness(
+        ctx: Context<FulfillVrfRandomness>,
+        claim_id: Pubkey,
+    ) -> Result<()> {
+        Instructions::vrf_integration::fulfill_vrf_randomness(ctx, claim_id)
     }
 
     // ----------------------------------------------------------------

@@ -1,0 +1,100 @@
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap");
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --ace-green: #00ff87;
+  --ace-teal: #00d4aa;
+  --ace-dark: #080c10;
+  --ace-card: #0d1520;
+  --ace-border: #1a2940;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background-color: var(--ace-dark);
+  color: #e2e8f0;
+  font-family: "JetBrains Mono", monospace;
+}
+
+/* Wallet adapter overrides */
+.wallet-adapter-button {
+  background: transparent !important;
+  border: 1px solid var(--ace-border) !important;
+  color: var(--ace-green) !important;
+  font-family: "JetBrains Mono", monospace !important;
+  font-size: 0.875rem !important;
+  padding: 0.5rem 1rem !important;
+  border-radius: 0.375rem !important;
+  transition: all 0.2s !important;
+}
+
+.wallet-adapter-button:hover {
+  background: rgba(0, 255, 135, 0.08) !important;
+  border-color: var(--ace-green) !important;
+}
+
+.wallet-adapter-modal-wrapper {
+  background: var(--ace-card) !important;
+  border: 1px solid var(--ace-border) !important;
+}
+
+.wallet-adapter-modal-title {
+  color: #e2e8f0 !important;
+  font-family: "JetBrains Mono", monospace !important;
+}
+
+.wallet-adapter-modal-list li button {
+  font-family: "JetBrains Mono", monospace !important;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--ace-card);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--ace-border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ace-muted);
+}
+
+/* Grid overlay */
+.bg-grid {
+  background-image: linear-gradient(
+      rgba(0, 255, 135, 0.03) 1px,
+      transparent 1px
+    ),
+    linear-gradient(90deg, rgba(0, 255, 135, 0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+/* Glow effects */
+.glow-green {
+  box-shadow: 0 0 20px rgba(0, 255, 135, 0.15);
+}
+.glow-text {
+  text-shadow: 0 0 20px rgba(0, 255, 135, 0.5);
+}
+
+/* Status badges */
+.status-pending {
+  @apply bg-yellow-500/10 text-yellow-400 border border-yellow-500/20;
+}
+.status-active {
+  @apply bg-green-500/10 text-green-400 border border-green-500/20;
+}
+.status-rejected {
+  @apply bg-red-500/10 text-red-400 border border-red-500/20;
+}
+.status-distributed {
+  @apply bg-blue-500/10 text-blue-400 border border-blue-500/20;
+}

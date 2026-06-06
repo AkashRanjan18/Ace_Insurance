@@ -1,279 +1,154 @@
-# ACE Insurance — On-Chain Hack Insurance Protocol
+# ACE Insurance — Decentralized Hack Insurance on Solana
 
-> **Decentralized crypto hack insurance on Solana.** Users pay premiums, stake validators, submit claims with on-chain evidence, and receive payouts — entirely governed by smart contract logic with no centralized adjudicator.
+Permissionless insurance protocol for on-chain hack losses. Pay USDC premiums, get covered for wallet compromises, bridge exploits, smart contract vulnerabilities, and more. Claims are validated by a staked validator network selected via Switchboard ECVRF. Payouts are governed entirely by smart contract logic — no human intermediaries, no KYC.
 
----
-
-##  Status
-
-| Component | Status |
-|---|---|
-| Smart Contract (Anchor/Rust) |  Complete |
-| Test Suite (TypeScript) |  Complete |
-| Devnet Deployment |  In Progress |
-| Frontend (Next.js) |  In Progress |
-
-> Program ID (Devnet): `coming soon`
+**Program ID (devnet):** `4LP2JnLzuPhTCLR6MzPEr2Cr2zU3om7Sk33G5QaeKXRU`
 
 ---
 
-## What Is ACE Insurance?
-
-ACE is a **permissionless insurance protocol** for on-chain hack losses — wallet hacks, phishing attacks, bridge exploits, flash loan attacks, smart contract exploits.
-
-Users join a pool, pay premiums (in USDC), and gain coverage up to a defined cap. When a hack occurs, they submit a claim with on-chain evidence. A decentralized validator set — selected via pseudo-VRF — investigates and votes. Approved claims are paid from the pool vault. Everything is verifiable on-chain.
-
-### Why It Exists
-
-Centralized crypto insurance (Nexus Mutual requires KYC, Etherisc is Ethereum-only) leaves a gap: **a permissionless, Solana-native insurance primitive**. ACE fills that gap.
-
----
-
-## Protocol Architecture
+## Architecture
 
 ```
-                          ┌─────────────────────────────────────┐
-                          │           ACE Insurance Pool         │
-                          │                                       │
-                          │  premium_amount  coverage_amount      │
-                          │  min_validators  claim_period         │
-                          │  fast_track_active  governance_auth   │
-                          └────────────┬────────────┬────────────┘
-                                       │            │
-                    ┌──────────────────┘            └──────────────────┐
-                    ▼                                                   ▼
-         ┌──────────────────┐                             ┌────────────────────┐
-         │   Pool Vault     │                             │  Validator System   │
-         │  (USDC PDA)      │◄──── premiums flow in       │                    │
-         │                  │                             │  ValidatorStake    │
-         │                  │───── payouts flow out ────► │  ValidatorStakePool│
-         └──────────────────┘                             │  VRF State         │
-                                                          └────────────────────┘
-                    │
-                    ▼
-         ┌──────────────────┐
-         │ DistributionQueue│
-         │                  │
-         │ Normal: pay all  │
-         │ Oversubscribed:  │
-         │   VRF lottery    │
-         └──────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          ACE Insurance Protocol                         │
+│                                                                         │
+│  ┌─────────────────┐   ┌──────────────────┐   ┌─────────────────────┐  │
+│  │  Pool Management│   │Claims Management  │   │Validator Management │  │
+│  │                 │   │                  │   │                     │  │
+│  │ initialize_pool │   │ submit_claim     │   │ stake_as_validator  │  │
+│  │ join_pool       │   │ emergency_payout │   │ validate_claim      │  │
+│  │ pay_premium     │   │ fast_track gov   │   │ promote_to_auditor  │  │
+│  └────────┬────────┘   └────────┬─────────┘   └──────────┬──────────┘  │
+│           │                     │                         │             │
+│  ─────────┴─────────────────────┴─────────────────────────┴──────────── │
+│                         Shared PDA State                                │
+│   InsurancePool │ UserCoverage │ ClaimRequest │ ValidatorStake          │
+│  ──────────────────────────────────────────────────────────────────────  │
+│           │                     │                         │             │
+│  ┌────────▼────────┐   ┌────────▼─────────┐   ┌──────────▼──────────┐  │
+│  │  VRF Integration│   │  Distribution    │   │    Risk Score       │  │
+│  │                 │   │  Queue           │   │    (OCCR)           │  │
+│  │ Phase 1:        │   │                  │   │                     │  │
+│  │  request ───►   │   │ add_to_queue     │   │ calculate_discount  │  │
+│  │  Switchboard    │   │ distribute_claims│   │ assess_severity     │  │
+│  │                 │   │ payout_claim     │   │                     │  │
+│  │ Phase 2:        │   └──────────────────┘   └─────────────────────┘  │
+│  │  ◄─── oracle    │                                                    │
+│  │  fulfills       │   ┌──────────────────┐                             │
+│  └─────────────────┘   │  Yield Generation│                             │
+│                        │ deposit/withdraw  │                             │
+│                        └──────────────────┘                             │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
----
-
-## Claim Lifecycle
+### Claim Lifecycle
 
 ```
-  User joins pool           User pays premium         Incident occurs
-  [join_pool]               [pay_premium]             [submit_claim]
-       │                          │                         │
-       ▼                          ▼                         ▼
- UserCoverage PDA          coverage_active = true    ClaimRequest PDA
- occr_discount set         premiums_paid++           status: Pending
- coverage_amount set                                 evidence_hash stored
-                                                     incident_timestamp set
-                                                            │
-                                                            ▼
-                                                  [request_validator_selection]
-                                                  VRF selects min_validators+2
-                                                  validators_assigned populated
-                                                  status: UnderValidation
-                                                            │
-                                          ┌─────────────────┴──────────────────┐
-                                          ▼                                     ▼
-                                   Validators vote                       [fast_track path]
-                                   [validate_claim]                      5 auditor approvals
-                                   approve/reject +                      → pool.fast_track_active
-                                   technical_analysis                    → 20% emergency payout
-                                          │
-                              ┌───────────┴───────────┐
-                              ▼                       ▼
-                         majority YES           majority NO
-                         status: Approved       status: Rejected
-                              │                 fraud detected?
-                              ▼                       ▼
-                    [add_to_distribution_queue]  slash_validator_full()
-                    [distribute_claims]          reputation = 0
-                    [payout_claim]               stake = 0
-                    USDC → claimant
+submit_claim
+     │
+     ▼
+ [Pending] ──► request_validator_selection ──► Switchboard VRF oracle
+                                                       │
+                                                       │  ECVRF proof computed off-chain
+                                                       │  (unknowable to any on-chain actor
+                                                       │   before the oracle publishes it)
+                                                       ▼
+                                             fulfill_vrf_randomness  (oracle CPI)
+                                                       │
+                                                       ▼
+                                              [UnderValidation]
+                                              validators assigned via
+                                              Fisher-Yates shuffle
+                                              seeded by VRF result
+                                                       │
+                              ┌────────────────────────┤
+                              ▼                        ▼
+                         [Approved]               [Rejected]
+                              │
+                    ┌─────────┴──────────┐
+                    ▼                    ▼
+              [Distributed]          [Queued]
+              payout_claim()      (oversubscribed:
+                                   VRF lottery picks
+                                   which claims win)
+```
+
+### Fast-Track Governance (Emergency Payouts)
+
+For widely-verified protocol exploits (bridge hacks, major rug pulls already documented on Rekt):
+
+```
+Pool Authority → propose_fast_track     (24-hour proposal window)
+Auditor × 5   → approve_fast_track     (Auditor-tier validators only, 3x vote weight)
+Pool Authority → activate_fast_track
+Claimant      → request_emergency_payout  → 20% immediate USDC transfer
+                                            remaining 80% → normal validation queue
 ```
 
 ---
 
-## OCCR Discount System
+## Why Switchboard VRF, Not keccak Hash
 
-**OCCR** = On-Chain Coverage Risk Rating. Users who follow security best practices pay lower premiums.
+The prior implementation hashed on-chain data (`slot + timestamp + pubkeys`) to select validators. This is manipulable: a validator can observe the inputs and time their transaction to land in a slot producing a hash that selects friendly validators for their own claim.
+
+Switchboard's **ECVRF (RFC 9381)** closes this attack:
+
+1. The oracle computes randomness off-chain using a secret key — the output is unknowable to anyone before the oracle publishes the proof.
+2. The proof is verified on-chain inside the Switchboard program before our callback fires.
+3. The oracle is economically slashable on its oracle queue, aligning incentives with honest behavior.
+
+**Two-phase async flow:**
+
+| Phase | Instruction | Caller | What happens |
+|-------|------------|--------|-------------|
+| 1 | `request_validator_selection` | Claimant | CPI to Switchboard; claim added to `pending_claims` |
+| 2 | `fulfill_vrf_randomness` | Switchboard oracle (CPI) | VRF result read from account; validators assigned |
+
+---
+
+## OCCR — On-Chain Coverage Risk Rating
+
+Users who follow verifiable security practices get a premium discount:
 
 | Security Posture | Discount |
-|---|---|
-| Neither multisig nor hardware wallet | 0% |
+|------------------|----------|
+| No multisig, no hardware wallet | 0% |
 | Multisig only | 10% |
 | Hardware wallet only | 10% |
-| Both multisig + hardware wallet | **20%** |
+| Both | **20% (max)** |
 
-The discount is recalculated on-chain anytime via `calculate_occr_discount`. This creates a **direct economic incentive** for users to adopt best practices.
+Discount is recalculated on-chain via `calculate_occr_discount`, creating direct economic incentive for users to adopt best practices.
 
 ---
 
 ## Validator Tier System
 
 ```
-                    ┌─────────────────────────────────────────────┐
-                    │              Validator Tiers                 │
-                    │                                              │
-                    │   STANDARD                  AUDITOR          │
-                    │   ─────────                 ───────          │
-                    │   Min stake: 0.1 SOL        Promoted by auth  │
-                    │   vote_weight: 1            vote_weight: 3    │
-                    │   Initial rep: 5000         Min rep: [thresh] │
-                    │                                              │
-                    │   Promotion path:                            │
-                    │   reputation ≥ AUDITOR_THRESHOLD             │
-                    │   → promote_to_auditor()                     │
-                    └─────────────────────────────────────────────┘
+STANDARD tier                         AUDITOR tier
+─────────────────                     ──────────────────────────────────
+Min stake: 0.1 SOL                    Promoted by pool authority
+vote_weight: 1                        vote_weight: 3
+Initial reputation: 5000              Min reputation: 8000 (threshold)
 
-  Reputation Mechanics:
-  ├── Voted with majority  →  +100 reputation, successful_validations++
-  └── Voted against majority →  -200 reputation, -6% stake slashed
-
-  Fraud Detection:
-  └── Claim rejected + "fraud"/"self-hack" in reason → slash_validator_full()
-      reputation = 0, stake = 0
+Reputation mechanics:
+  Voted with majority    →  +100 rep, successful_validations++
+  Voted against majority →  -200 rep, -6% stake slashed
+  "fraud"/"self-hack" in reason (rejected claim)  →  full stake slash, rep = 0
 ```
-
----
-
-## Fast-Track Emergency System
-
-For verified large-scale protocol exploits (e.g. a major bridge hack), ACE has a governance fast-track:
-
-```
-  authority proposes          auditors vote           5 approvals reached
-  [propose_fast_track]   →   [approve_fast_track]  →  [activate_fast_track]
-  approval_count = 1         Auditor tier only       pool.fast_track_active = true
-  expires_at = +24h          +1 per vote             24h window enforced
-                                                              │
-                                                             ▼
-                                                   [request_emergency_payout]
-                                                   20% of claim amount
-                                                   paid immediately
-                                                   remaining goes to
-                                                   normal validation queue
-```
-
----
-
-## Distribution Queue
-
-When multiple claims are approved simultaneously:
-
-```
-  available_funds >= total_requested        available_funds < total_requested
-  ─────────────────────────────────        ──────────────────────────────────
-  Normal distribution:                     Oversubscribed:
-  All approved claims paid in full         VRF randomness selects claims
-  selected_claims = pending_claims         Fair lottery — not first-come-first-served
-```
-
----
-
-## Account Structure
-
-| Account | Seeds | Purpose |
-|---|---|---|
-| `InsurancePool` | `["pool", authority]` | Pool config, stats, governance |
-| `UserCoverage` | `["coverage", user, pool]` | Per-user coverage state, OCCR |
-| `ClaimRequest` | `["claim", claimant, pool, timestamp]` | Claim state + validations |
-| `ValidatorStake` | `["validator", validator, pool]` | Per-validator stake + reputation |
-| `ValidatorStakePool` | `["validator_stake", pool]` | Registry of all validators |
-| `VrfState` | `["vrf_state", pool]` | Randomness state for selection |
-| `DistributionQueue` | `["distribution", pool]` | Claim payout queue |
-| `FastTrackProposal` | `["fast_track", pool, protocol]` | Governance proposal |
-| Pool Vault | `["vault", pool]` | USDC token vault (PDA-owned) |
-
----
-
-## Instruction Reference
-
-### Pool Management
-| Instruction | Description |
-|---|---|
-| `initialize_pool` | Create a new insurance pool with premium, coverage, validator config |
-| `join_pool` | Join pool, pay initial premium, set security posture |
-| `pay_premium` | Pay monthly premium with OCCR discount applied |
-
-### Claims
-| Instruction | Description |
-|---|---|
-| `submit_claim` | Submit hack claim with evidence hash, incident timestamp, wallet loss proof |
-| `request_emergency_payout` | Claim 20% immediately when fast-track is active |
-| `assess_hack_severity` | Authority/validator sets `SeverityTier` on claim |
-
-### Validators
-| Instruction | Description |
-|---|---|
-| `initialize_validator_stake` | Set up validator registry for pool |
-| `stake_as_validator` | Stake ≥ 0.1 SOL, enter validator set |
-| `validate_claim` | Vote approve/reject with technical analysis (≤500 chars) |
-| `promote_to_auditor` | Promote validator to Auditor tier (3x vote weight) |
-
-### Distribution
-| Instruction | Description |
-|---|---|
-| `initialize_distribution_queue` | Set up distribution queue for pool |
-| `add_to_distribution_queue` | Add approved claim to queue |
-| `distribute_claims` | Run normal or VRF-lottery distribution |
-| `payout_claim` | Execute individual USDC transfer to claimant |
-
-### Governance
-| Instruction | Description |
-|---|---|
-| `propose_fast_track` | Propose emergency fast-track for known protocol exploit |
-| `approve_fast_track` | Auditor-tier validator approves proposal |
-| `activate_fast_track` | Activate after 5 auditor approvals (24h window) |
-
-### Risk & VRF
-| Instruction | Description |
-|---|---|
-| `calculate_occr_discount` | Recalculate security discount for user |
-| `initialize_vrf_state` | Set up pseudo-VRF state for pool |
-| `request_validator_selection` | Randomly assign validators to claim |
-
----
-
-## Security Properties
-
-- **Checked arithmetic** on every numeric operation — no integer overflow possible
-- **PDA-owned vault** — pool funds held by program, not EOA
-- **Fraud detection** — validators using "fraud"/"self-hack" keywords trigger full stake slash
-- **Anti-backdating** — `joined_at < incident_timestamp` enforced on-chain
-- **Claim period enforcement** — incidents outside `claim_period` window rejected
-- **Evidence requirements** — non-empty IPFS hash + valid protocol address required
-- **Wallet loss proof** — `balance_before > balance_after` enforced on-chain
-- **Validator assignment via VRF** — Keccak256(claim_id + pool + timestamp + slot) prevents manipulation
-- **Dynamic account realloc** — `ClaimRequest` grows with each validation, no fixed-size ceiling
-
----
-
-## Known Limitations (In Progress)
-
-- Vault bump seed in emergency payout uses pool bump — fix pending
-- `activate_fast_track` missing governance authority check — fix pending  
-- Fraud detection is string-based — moving to dedicated `is_fraud_flagged: bool` field
-- VRF uses pseudo-randomness — Switchboard VRF integration planned (`switchboard_vrf` field reserved)
-- `yield_generation` is a placeholder stub — DeFi yield routing not yet implemented
 
 ---
 
 ## Getting Started
 
 ### Prerequisites
-- Rust + Anchor CLI (`anchor --version`)
-- Solana CLI (`solana --version`)
-- Node.js + Yarn
+
+- Rust 1.79+
+- Solana CLI 2.x — `sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"`
+- Anchor CLI 0.31.1 — `cargo install --git https://github.com/coral-xyz/anchor anchor-cli --tag v0.31.1`
+- Node.js 18+, Yarn
 
 ### Install
+
 ```bash
 git clone https://github.com/AkashRanjan18/Ace_Insurance
 cd Ace_Insurance
@@ -281,57 +156,171 @@ yarn install
 ```
 
 ### Build
+
 ```bash
 anchor build
 ```
 
-### Test
+Compiled binary → `target/deploy/ace_insurance.so`  
+IDL → `target/idl/ace_insurance.json`
+
+### Test (localnet)
+
 ```bash
-anchor test
+# Terminal 1
+solana-test-validator
+
+# Terminal 2
+anchor test --skip-local-validator
 ```
 
 ### Deploy to Devnet
+
 ```bash
-solana config set --url devnet
+# Fund your wallet
+solana airdrop 4 --url devnet
+
+# Deploy
 anchor deploy --provider.cluster devnet
+
+# Verify it's live
+solana program show 4LP2JnLzuPhTCLR6MzPEr2Cr2zU3om7Sk33G5QaeKXRU --url devnet
+```
+
+### Set Up Switchboard VRF (Devnet)
+
+```bash
+# Install Switchboard CLI
+npm install -g @switchboard-xyz/cli
+
+# Create VRF account linked to this program's fulfill_vrf_randomness callback
+sb vrf create \
+  --cluster devnet \
+  --keypair ~/.config/solana/id.json \
+  --callback-program-id 4LP2JnLzuPhTCLR6MzPEr2Cr2zU3om7Sk33G5QaeKXRU \
+  --callback-ix-name "fulfill_vrf_randomness"
+
+# Fund VRF escrow with wrapped SOL (pays oracle reward)
+sb vrf fund --cluster devnet --vrf <VRF_ACCOUNT_PUBKEY>
+
+# Pass the VRF account pubkey to initialize_vrf_state — you're live
 ```
 
 ---
 
-## Hack Types Supported
+## Frontend
 
-| Type | Description |
-|---|---|
-| `WalletHack` | Private key compromise, unauthorized access |
-| `PhishingAttack` | Social engineering, fake sites |
-| `BridgeExploit` | Cross-chain bridge vulnerability |
-| `FlashLoanAttack` | Flash loan price manipulation |
-| `SmartContractExploit` | Protocol-level vulnerability |
+The `frontend/` directory contains a Next.js 14 app with Tailwind CSS and Solana Wallet Adapter.
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000).
+
+**Features:**
+- Connect Phantom / Solflare (any Wallet Adapter wallet)
+- View live pool stats, join pool, pay premiums
+- Submit hack claims with evidence hash, incident timestamp, wallet loss proof
+- Track claim status through the full lifecycle
+- Validator dashboard — stake SOL, validate claims, track reputation
+
+---
+
+## Program Modules
+
+| Module | File | Responsibility |
+|--------|------|----------------|
+| Pool Management | `pool_management.rs` | Init pools, join, pay premiums, OCCR discount |
+| Claims Management | `claims_management.rs` | Submit claims, fast-track governance, emergency payouts |
+| Validators | `validators_management.rs` | Stake, validate, promote, reputation/slash mechanics |
+| VRF Integration | `vrf_integration.rs` | **Switchboard ECVRF**-backed random validator selection (2-phase) |
+| Distribution | `distribution.rs` | Claim queue, oversubscription lottery, USDC payouts |
+| Risk Score | `risk_score.rs` | OCCR discount calculation, severity assessment |
+| Yield Generation | `yield_generation.rs` | Deposit/withdraw idle pool funds to external yield vault |
+
+---
+
+## Account Reference
+
+| Account | Seeds | Purpose |
+|---------|-------|---------|
+| `InsurancePool` | `["pool", authority]` | Pool config, stats, governance flags |
+| `UserCoverage` | `["coverage", user, pool]` | Per-user coverage state, OCCR score |
+| `ClaimRequest` | `["claim", claimant, pool, timestamp]` | Full claim state + validation votes |
+| `ValidatorStake` | `["validator", validator, pool]` | Per-validator stake + reputation |
+| `ValidatorStakePool` | `["validator_stake", pool]` | Registry of all validators for a pool |
+| `VrfState` | `["vrf_state", pool]` | Switchboard VRF account link + pending queue |
+| `DistributionQueue` | `["distribution", pool]` | Approved claims awaiting payout |
+| `FastTrackProposal` | `["fast_track", pool, protocol]` | Active governance proposal |
+| Pool Vault | `["vault", pool]` | PDA-owned USDC token account |
+
+---
+
+## Design Decisions
+
+**Why Solana?**
+Claims validation is latency-sensitive. Solana's 400ms block times let validators submit assessments in seconds. Sub-cent fees mean small-premium users aren't priced out of on-chain interactions.
+
+**Why USDC for premiums?**
+Denominating in stablecoins removes actuarial complexity — claim amounts and pool reserves are always dollar-comparable regardless of SOL price.
+
+**Why stake-based validators instead of token governance?**
+Token governance favors whales. Requiring validators to put SOL at risk (slashable by reputation decay and outright fraud detection) aligns economic incentives with honest assessment. Auditor-tier validators (verified security researchers) carry 3× vote weight to weight expertise over capital.
+
+**Why two-phase VRF instead of commit-reveal?**
+Commit-reveal requires multi-round coordination. If any party ghosts, the protocol stalls. Switchboard VRF is single-sided: the claimant requests, the oracle delivers asynchronously. Liveness depends only on the oracle network.
+
+**Fast-track tradeoff**
+The full validation cycle takes 24–72 hours. For publicly documented exploits, that delay harms victims needlessly. The 5-auditor threshold and 24-hour expiry are guardrails against governance capture.
+
+---
+
+## Security Properties
+
+| Property | Mechanism |
+|----------|-----------|
+| No integer overflow | `checked_add` / `checked_div` on every numeric op |
+| Tamper-proof fund custody | PDA-owned vault (pool has no keypair) |
+| Unbiased validator selection | Switchboard ECVRF — oracle-sourced, verifiable, unmanipulable |
+| Anti-backdating | `joined_at < incident_timestamp` enforced on-chain |
+| Evidence requirements | Non-empty IPFS hash + valid protocol address required |
+| Wallet loss proof | `balance_before > balance_after` enforced |
+| Fraud detection | "fraud"/"self-hack" in rejected claim reason → full stake slash |
+| Fast-track guardrails | Auditor majority (5 votes) + 24-hour proposal expiry |
+| Emergency payout cap | 20% max, idempotent per claim |
+
+---
+
+## Hack Types Covered
+
+`SmartContractExploit` · `WalletHack` · `PhishingAttack` · `SocialEngineering` · `FlashLoanAttack` · `OracleManipulation` · `ReentrancyAttack` · `AccessControlBypass` · `BridgeExploit` · `RugPull` · `Other`
 
 ---
 
 ## Tech Stack
 
 | Layer | Technology |
-|---|---|
-| Smart Contract | Rust, Anchor Framework |
-| Token Standard | SPL Token (USDC) |
-| Randomness | Keccak256 pseudo-VRF (Switchboard planned) |
-| Test Suite | TypeScript, Mocha/Chai, `@coral-xyz/anchor` |
-| Network | Solana (Devnet → Mainnet) |
+|-------|-----------|
+| Smart contract | Rust, Anchor 0.31.1 |
+| Token standard | SPL Token (USDC) |
+| Randomness | **Switchboard V2 ECVRF** (RFC 9381) |
+| Test suite | TypeScript, Mocha/Chai, `@coral-xyz/anchor` |
+| Frontend | Next.js 14, Tailwind CSS, Solana Wallet Adapter |
+| Network | Solana Devnet → Mainnet |
 
 ---
 
 ## Roadmap
 
-- [ ] Fix vault bump seed bug
-- [ ] Add authority check to `activate_fast_track`
-- [ ] Replace string fraud detection with boolean flag
-- [ ] Integrate Switchboard VRF for true randomness
-- [ ] Implement yield generation (Kamino/MarginFi integration)
-- [ ] Frontend (Next.js + Wallet Adapter)
-- [ ] Mainnet deployment
-- [ ] Security audit
+- [ ] Mainnet deployment after security audit
+- [ ] Switchboard On-Demand migration (single-tx randomness, no async)
+- [ ] Yield vault implementation (Kamino / MarginFi integration)
+- [ ] Insurance NFT as transferable proof of coverage
+- [ ] Cross-pool reinsurance mechanism
+- [ ] Governance token for protocol parameter updates
 
 ---
 
@@ -341,4 +330,4 @@ MIT
 
 ---
 
-*Built on Solana. No KYC. No intermediaries. Your coverage, your keys.*
+*No KYC. No intermediaries. Your coverage, your keys.*
